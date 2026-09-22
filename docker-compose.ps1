@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 param([string]$Command = "up")
 
 Set-StrictMode -Version Latest
@@ -25,23 +25,40 @@ function Show-Usage([hashtable]$Commands) {
     }
 }
 
+# Selects the tailscale serve config that docker-compose.yml mounts. Anything
+# other than an explicit truthy PUBLIC_ACCESS stays tailnet-only, so a typo can
+# only ever fail closed.
+function Resolve-ServeFile {
+    $public = "$env:PUBLIC_ACCESS".Trim().ToLower() -in @("1", "true", "yes", "on")
+    $env:TS_SERVE_FILE = if ($public) { "funnel.json" } else { "serve.json" }
+    return $public
+}
+
 # Prints the tailnet HTTPS URL clients should point Stremio at. Reads the live
 # node identity from the running tailscale container so the tailnet name is real,
 # not guessed.
 function Show-Url {
     $raw = docker compose exec -T tailscale tailscale status --json 2>$null
-    if (-not $raw) { Write-Err "tailscale not running yet — run 'up' first."; return }
+    if (-not $raw) { Write-Err "tailscale not running yet - run 'up' first."; return }
     try {
         $dns = ($raw | ConvertFrom-Json).Self.DNSName.TrimEnd('.')
     } catch { $dns = $null }
-    if (-not $dns) { Write-Err "Node not authenticated yet — check 'logs'."; return }
+    if (-not $dns) { Write-Err "Node not authenticated yet - check 'logs'."; return }
     Write-Host ""
-    Write-OK "Streaming server URL (set this in web.stremio.com -> Settings):"
-    Write-Host "    https://$dns/" -ForegroundColor Yellow
+    if ($script:IsPublic) {
+        Write-OK "Public streaming server URL - share this with friends:"
+        Write-Host "    https://$dns/" -ForegroundColor Yellow
+        Write-Host "    Reachable from the open internet, with no login. Anyone who" -ForegroundColor DarkYellow
+        Write-Host "    has the URL can stream and download through your connection." -ForegroundColor DarkYellow
+    } else {
+        Write-OK "Streaming server URL (set this in web.stremio.com -> Settings):"
+        Write-Host "    https://$dns/" -ForegroundColor Yellow
+    }
 }
 
 Set-Location $PSScriptRoot
 Import-Config "$PSScriptRoot\config.env"
+$script:IsPublic = Resolve-ServeFile
 
 $usage = @{
     "up"      = "Start the stack (default)"
@@ -62,6 +79,7 @@ switch ($Command.ToLower()) {
             Write-Err "Create a key at https://login.tailscale.com/admin/settings/keys"
             exit 1
         }
+        if ($script:IsPublic) { Write-Step "PUBLIC_ACCESS is on - serving over Tailscale Funnel." }
         Write-Step "Starting stremio + tailscale..."
         docker compose up -d
         Write-Step "Waiting for the tailnet node to authenticate..."

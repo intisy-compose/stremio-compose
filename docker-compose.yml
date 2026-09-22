@@ -1,70 +1,36 @@
-# Stremio streaming server, reachable over Tailscale as trusted HTTPS.
-#
-# Why two services: https://web.stremio.com is served over HTTPS, and a browser
-# refuses to let an HTTPS page talk to a plain http:// streaming server (mixed
-# content). The localhost exception doesn't help us because the watching device
-# is a *different* machine on the tailnet. So the streaming server has to be
-# reachable over real, browser-trusted HTTPS.
-#
-# Tailscale solves exactly this: the `tailscale` sidecar joins the tailnet and
-# runs `tailscale serve`, which terminates HTTPS using a genuine Let's Encrypt
-# certificate issued for this node's MagicDNS name (<TS_HOSTNAME>.<tailnet>.ts.net)
-# and reverse-proxies to the stremio server. `stremio-server` shares the
-# sidecar's network namespace (network_mode: service:tailscale), so the serve
-# proxy reaches it on 127.0.0.1:11470 (one shared network stack).
 services:
-  # --- Tailscale node + HTTPS front door --------------------------------------
   tailscale:
     image: tailscale/tailscale:latest
     container_name: stremio-tailscale
     hostname: ${TS_HOSTNAME:-stremio}
     restart: unless-stopped
     environment:
-      # Auth key from the Tailscale admin console (see config.env). An ephemeral
-      # or reusable key both work; state below means it only authenticates once.
       - TS_AUTHKEY=${TS_AUTHKEY:-}
-      # Persist node identity so restarts don't burn a new auth and don't spawn
-      # duplicate "stremio-1", "stremio-2" nodes in the tailnet.
+      # Stored node state can hold settings from earlier runs; --reset lets each
+      # boot's flag set win instead of erroring out ("requires mentioning all
+      # non-default flags") and restart-looping the container.
+      - TS_EXTRA_ARGS=--reset
       - TS_STATE_DIR=/var/lib/tailscale
-      # Userspace networking: no /dev/net/tun and no NET_ADMIN needed, so this
-      # runs unprivileged on Docker Desktop / WSL2 on Windows. `tailscale serve`
-      # works fine in userspace mode (it proxies in-process to 127.0.0.1).
       - TS_USERSPACE=true
-      # Declarative serve config — proxies tailnet HTTPS:443 to the stremio
-      # server. ${TS_CERT_DOMAIN} inside that file is substituted by the image
-      # with this node's real cert domain at startup.
       - TS_SERVE_CONFIG=/config/serve.json
     volumes:
       - ./data/tailscale:/var/lib/tailscale
-      - ./serve.json:/config/serve.json:ro
+      # serve.json = tailnet-only, funnel.json = public. The launcher picks one
+      # from PUBLIC_ACCESS; the default keeps a bare `docker compose up` private.
+      - ./${TS_SERVE_FILE:-serve.json}:/config/serve.json:ro
     ports:
-      # Optional: expose the raw streaming server on THIS pc's localhost only,
-      # for debugging from the host browser at http://127.0.0.1:11470 . Remote
-      # devices never use this — they go through the tailnet HTTPS URL. Bound to
-      # 127.0.0.1 so it is never reachable off-box. Remove if you don't want it.
       - "127.0.0.1:11470:11470"
 
-  # --- Stremio streaming server -----------------------------------------------
   stremio-server:
     image: stremio/server:latest
     container_name: stremio-server
     restart: unless-stopped
-    # Live inside the tailscale node's network namespace so `tailscale serve`
-    # can reach this server on 127.0.0.1:11470. (With network_mode: service:*,
-    # ports must be declared on the tailscale service above, not here.)
     network_mode: "service:tailscale"
     depends_on:
       - tailscale
     environment:
-      # Allow the https://web.stremio.com origin to call this server from the
-      # browser without CORS rejections.
       - NO_CORS=1
-      # We get HTTPS from Tailscale, so disable the server's own stremio.rocks
-      # certificate/casting machinery — it can't get a cert for a 100.x tailnet
-      # IP anyway and would just log errors on a loop.
       - CASTING_DISABLED=1
-      # Where the server keeps its settings + cache, mapped to a host bind below
-      # so it survives container recreation.
       - APP_PATH=/root/.stremio-server
     volumes:
       - ./data/stremio:/root/.stremio-server

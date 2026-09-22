@@ -17,7 +17,9 @@ Tailscale does this for free: the `tailscale` sidecar joins your tailnet and run
 `tailscale serve`, which terminates HTTPS with a genuine Let's Encrypt
 certificate for this node's MagicDNS name and reverse-proxies to the streaming
 server. The `stremio-server` container shares the sidecar's network namespace, so
-no ports are exposed publicly — access is purely tailnet-internal.
+no ports are exposed publicly — access is purely tailnet-internal. (To let
+friends outside your tailnet in, see [Sharing with friends outside your
+tailnet](#sharing-with-friends-outside-your-tailnet).)
 
 ```
 web.stremio.com  (open on any device on your tailnet)
@@ -97,6 +99,7 @@ e.g. `.\docker-compose.ps1 logs` or `./docker-compose.sh url`.
 |-----|---------|
 | `TS_AUTHKEY` | Tailscale auth key for the sidecar to join your tailnet. **Required.** |
 | `TS_HOSTNAME` | MagicDNS name of the node → `https://<TS_HOSTNAME>.<tailnet>.ts.net/`. Default `stremio`. |
+| `PUBLIC_ACCESS` | `true` serves over Tailscale Funnel, reachable from the open internet. Default `false` (tailnet-only). See below. |
 | `WATCH_DEVICE_IP` | The watch device's tailnet IP (`100.x.y.z`). Documentation only — used in the optional ACL below. |
 
 ## Optional: lock access to just your watch device
@@ -115,12 +118,59 @@ the IP with your `WATCH_DEVICE_IP`, and `stremio` with your `TS_HOSTNAME`):
 (Adjust to fit the rest of your policy file; tag the node or use its MagicDNS
 name as the `dst` if you prefer.)
 
+## Sharing with friends outside your tailnet
+Set `PUBLIC_ACCESS=true` in `config.env` and the sidecar switches from
+`tailscale serve` to **[Tailscale Funnel](https://tailscale.com/kb/1223/funnel)**:
+the same `https://<hostname>.<tailnet>.ts.net/` URL becomes reachable from the
+open internet, so friends can paste it into web.stremio.com with no Tailscale
+account and nothing to install.
+
+> [!WARNING]
+> **The public URL has no authentication.** `stremio/server` ships without any
+> login, so anyone who has the link can drive torrent downloads through your IP
+> and saturate your uplink. Treat the URL as a credential, and turn it off when
+> you're not sharing. Funnel also relays traffic through Tailscale's
+> infrastructure rather than peer-to-peer — it isn't built for sustained video
+> and may be rate-limited, so expect worse throughput than tailnet-direct.
+
+### One-time tailnet setup
+Funnel needs the `funnel` node attribute in your **Access Controls** policy file
+(this is separate from the HTTPS certs toggle in step 1):
+
+```jsonc
+{
+  "nodeAttrs": [
+    { "target": ["autogroup:member"], "attr": ["funnel"] }
+  ]
+}
+```
+
+### Turn it on
+```env
+PUBLIC_ACCESS=true
+```
+Then `.\docker-compose.ps1 restart` (or `./docker-compose.sh restart`). The
+launcher prints the public URL and flags that it's internet-facing.
+
+Setting it back to `false` and restarting returns the node to tailnet-only.
+Anything other than `true`/`1`/`yes`/`on` counts as off, so a typo fails closed —
+and running `docker compose up` directly, bypassing the launcher, always stays
+private.
+
+### Alternative: share the node instead
+If your friends are willing to install Tailscale, **[node
+sharing](https://tailscale.com/kb/1084/sharing)** is strictly better — direct
+WireGuard at full speed, no public URL, revocable per person, and it doesn't
+consume your tailnet's user seats. Admin console → **Machines** → the `stremio`
+node → **⋯** → **Share**. Leave `PUBLIC_ACCESS=false` in that case.
+
 ## Layout
 ```
 docker-compose.bat            Windows entry point (double-click) -> docker-compose.ps1
 docker-compose.ps1 / .sh      launcher: up / down / restart / logs / url
 docker-compose.yml            two services: tailscale sidecar + stremio/server
 serve.json                    tailscale serve config (HTTPS:443 -> 127.0.0.1:11470)
+funnel.json                   same, plus AllowFunnel (used when PUBLIC_ACCESS=true)
 config.env                    auth key + hostname (gitignored)
 config.env.example            template for config.env
 data/                         tailscale node state + stremio cache (gitignored)
@@ -143,6 +193,10 @@ The auth key is only used at **first join**; the node identity then persists in
   `stremio/server` and `tailscale` images.
 - The node identity persists in `data/tailscale`, so restarts reuse the same
   tailnet node instead of creating `stremio-1`, `stremio-2`, …
+- **If the public URL doesn't resolve with `PUBLIC_ACCESS=true`:** check `logs`
+  for a Funnel permission error — that means the `funnel` node attribute is
+  missing from your Access Controls policy. Funnel is also limited to ports 443,
+  8443 and 10000; this stack uses 443.
 - **If the HTTPS URL returns 502:** the streaming server's listener isn't up —
   run the `restart` command (or `docker compose restart stremio-server`).
   Don't run `tailscale up --reset` while the stack is starting; it disrupts the
