@@ -30,7 +30,7 @@ Requires [Docker](https://docs.docker.com/get-docker/) and a
 [Tailscale](https://tailscale.com/) account (the free plan is enough).
 
 ```bash
-git clone https://github.com/intisy/stremio-compose
+git clone --recursive https://github.com/intisy-compose/stremio-compose
 cd stremio-compose
 cp config.env.example config.env   # then fill in TS_AUTHKEY (step 2)
 ```
