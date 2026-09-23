@@ -1,5 +1,2 @@
 # Local config and secrets (copy config.env from config.env.example)
 config.env
-
-# Runtime data (tailscale state, stremio cache)
-data/
