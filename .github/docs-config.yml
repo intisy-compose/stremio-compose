@@ -1,0 +1,2 @@
+kind: generic
+description: "A self-hosted **Stremio streaming server** in Docker, exposed to your devices as **trusted HTTPS over Tailscale** - so you can watch on [web.stremio.com](https://web.stremio.com/) from any device on your tailnet, without installing the Stremio app."
