@@ -1,6 +1,8 @@
 ﻿#Requires -Version 5.1
 param([string]$Command = "up")
 
+$forwarded = $args
+
 Set-StrictMode -Version Latest
 
 function Write-Step([string]$msg) { Write-Host $msg -ForegroundColor Cyan }
@@ -56,6 +58,33 @@ function Show-Url {
     }
 }
 
+function Invoke-Data([object[]]$DataArguments) {
+    $subcommand = if ($DataArguments) { "$($DataArguments[0])".ToLower() } else { "status" }
+    switch ($subcommand) {
+        "status" { git -C $PSScriptRoot submodule status -- data; break }
+        "use" {
+            $source = if ($DataArguments.Count -ge 2) { "$($DataArguments[1])" } else { "" }
+            if ($source) {
+                $parts = $source.Split("@", 2)
+                $url = if ($parts[0] -match "://|^git@") { $parts[0] } else { "https://github.com/$($parts[0]).git" }
+                $ref = if ($parts.Count -eq 2) { $parts[1] } else { "main" }
+            } else {
+                $url = git -C $PSScriptRoot config -f .gitmodules submodule.data.url
+                $ref = "main"
+            }
+            Write-Step "Pointing data at $url @ $ref"
+            git -C $PSScriptRoot config submodule.data.url $url
+            git -C $PSScriptRoot submodule sync -- data | Out-Null
+            git -C $PSScriptRoot submodule update --init -- data 2>$null | Out-Null
+            git -C "$PSScriptRoot\data" fetch -q origin $ref
+            git -C "$PSScriptRoot\data" checkout -q FETCH_HEAD
+            Write-OK "data now at $(git -C "$PSScriptRoot\data" rev-parse --short HEAD)"
+            break
+        }
+        default { Show-Usage -Commands $usage; exit 1 }
+    }
+}
+
 Set-Location $PSScriptRoot
 Import-Config "$PSScriptRoot\config.env"
 $script:IsPublic = Resolve-ServeFile
@@ -66,6 +95,7 @@ $usage = @{
     "restart" = "Recreate the stack"
     "logs"    = "Follow logs"
     "url"     = "Print the HTTPS URL to use in web.stremio.com"
+    "data"    = "status | use [owner/repo[@ref]]  point data/ at a data repo (none = template)"
 }
 
 switch ($Command.ToLower()) {
@@ -92,5 +122,6 @@ switch ($Command.ToLower()) {
     "restart" { Write-Step "Recreating..."; docker compose up -d --force-recreate; Show-Url; break }
     "logs"    { docker compose logs -f; break }
     "url"     { Show-Url; break }
+    "data"    { Invoke-Data $forwarded; break }
     default   { Show-Usage -Commands $usage; exit 1 }
 }
