@@ -55,15 +55,9 @@ TS_HOSTNAME=stremio
 
 ### 3. Start it
 
-**Windows:** double-click `docker-compose.bat`, or from a terminal:
+`docker-compose.ps1` is the one CLI (Windows PowerShell, or `pwsh` elsewhere):
 ```powershell
 .\docker-compose.ps1 up
-```
-
-**Linux / macOS:**
-```bash
-chmod +x docker-compose.sh
-./docker-compose.sh up
 ```
 
 On first run the sidecar authenticates to your tailnet and fetches its cert. The
@@ -84,8 +78,9 @@ from step 3. It should flip to **connected**.
 | `restart` | Recreate the stack |
 | `logs` | Follow logs (watch the tailnet node authenticate here) |
 | `url` | Re-print the HTTPS URL for web.stremio.com |
+| `data status` / `data use [owner/repo[@ref]]` | Show or swap the data repo mounted at `data/` (no source = public template) |
 
-e.g. `.\docker-compose.ps1 logs` or `./docker-compose.sh url`.
+e.g. `.\docker-compose.ps1 logs` or `.\docker-compose.ps1 url`.
 
 ## Configuration - `config.env`
 | Key | Purpose |
@@ -142,7 +137,7 @@ Funnel needs the `funnel` node attribute in your **Access Controls** policy file
 ```env
 PUBLIC_ACCESS=true
 ```
-Then `.\docker-compose.ps1 restart` (or `./docker-compose.sh restart`). The
+Then `.\docker-compose.ps1 restart`. The
 launcher prints the public URL and flags that it's internet-facing.
 
 Setting it back to `false` and restarting returns the node to tailnet-only.
@@ -159,14 +154,14 @@ node → **⋯** → **Share**. Leave `PUBLIC_ACCESS=false` in that case.
 
 ## Layout
 ```
-docker-compose.bat            Windows entry point (double-click) -> docker-compose.ps1
-docker-compose.ps1 / .sh      launcher: up / down / restart / logs / url
+docker-compose.ps1            the one CLI: up / down / restart / logs / url / data
 docker-compose.yml            two services: tailscale sidecar + stremio/server
 serve.json                    tailscale serve config (HTTPS:443 -> 127.0.0.1:11470)
 funnel.json                   same, plus AllowFunnel (used when PUBLIC_ACCESS=true)
 config.env                    auth key + hostname (gitignored)
 config.env.example            template for config.env
-data/                         tailscale node state + stremio cache (gitignored)
+data/                         data repo (submodule): server-settings.json tracked,
+                              tailscale node state + stream cache gitignored
 ```
 
 ## Auth key lifecycle (90-day cap is fine)
