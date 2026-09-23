@@ -24,11 +24,11 @@ show_url() {
     dns=$(docker compose exec -T tailscale tailscale status --json 2>/dev/null \
         | grep -o '"DNSName":"[^"]*"' | head -1 | sed 's/.*:"//; s/"//; s/\.$//')
     if [ -z "$dns" ]; then
-        echo "Node not authenticated yet — check 'logs'." >&2; return 1
+        echo "Node not authenticated yet - check 'logs'." >&2; return 1
     fi
     echo
     if [ "$IS_PUBLIC" = "1" ]; then
-        echo "  Public streaming server URL — share this with friends:"
+        echo "  Public streaming server URL - share this with friends:"
         echo "      https://$dns/"
         echo "      Reachable from the open internet, with no login. Anyone who"
         echo "      has the URL can stream and download through your connection."
@@ -49,7 +49,7 @@ case "${1:-up}" in
             echo "Create a key at https://login.tailscale.com/admin/settings/keys" >&2
             exit 1
         fi
-        [ "$IS_PUBLIC" = "1" ] && echo "PUBLIC_ACCESS is on — serving over Tailscale Funnel."
+        [ "$IS_PUBLIC" = "1" ] && echo "PUBLIC_ACCESS is on - serving over Tailscale Funnel."
         echo "Starting stremio + tailscale..."
         docker compose up -d
         echo "Waiting for the tailnet node to authenticate..."
