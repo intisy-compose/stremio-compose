@@ -1,6 +1,6 @@
 services:
   tailscale:
-    image: tailscale/tailscale:latest
+    image: tailscale/tailscale:v1.102.4
     container_name: stremio-tailscale
     hostname: ${TS_HOSTNAME:-stremio}
     restart: unless-stopped
