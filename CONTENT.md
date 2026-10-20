@@ -11,7 +11,8 @@ the `gateway`'s network namespace, and the gateway (Caddy, the shared gateway of
 the `intisy-compose` stacks) terminates HTTPS with a genuine Let's Encrypt
 certificate for this node's MagicDNS name, taken from tailscale, and
 reverse-proxies to the streaming server. The same gateway serves
-`http://localhost:11470` on this PC only; nothing listens on the LAN, and access
+`http://localhost:8446` on this PC only (11470, the server's own port, is often
+taken by a native Stremio app); nothing listens on the LAN, and access
 from other devices is purely tailnet-internal. (To let
 friends outside your tailnet in, see [Sharing with friends outside your
 tailnet](#sharing-with-friends-outside-your-tailnet).)
@@ -109,7 +110,8 @@ the IP with your `WATCH_DEVICE_IP`, and `stremio` with your `TS_HOSTNAME`):
 name as the `dst` if you prefer.)
 
 ## Sharing with friends outside your tailnet
-Set `PUBLIC_ACCESS=true` in `config.env` and the sidecar opens the tailnet site to
+Set `PUBLIC_ACCESS=true` in `config.env` (the same switch every stack on the shared
+gateway has) and the sidecar opens the tailnet site to
 **[Tailscale Funnel](https://tailscale.com/kb/1223/funnel)**:
 the same `https://<hostname>.<tailnet>.ts.net/` URL becomes reachable from the
 open internet, so friends can paste it into web.stremio.com with no Tailscale
@@ -158,10 +160,10 @@ node → **⋯** → **Share**. Leave `PUBLIC_ACCESS=false` in that case.
 ```
 docker-compose.ps1            the one CLI: up / down / restart / logs / url / data
 docker-compose.yml            stremio/server, the gateway and the tailscale sidecar
-gateway/Caddyfile, gateway.yml  the shared gateway, vendored from intisy-compose/workflows
-gateway/sites.caddy           this stack's sites: the tailnet name and localhost:11470
-gateway/serve.json            tailnet :443 forwarded to the gateway
-gateway/funnel.json           same, plus AllowFunnel (used when PUBLIC_ACCESS=true)
+gateway/Caddyfile, gateway.yml, tailscale.sh
+                              the shared gateway, vendored from intisy-compose/workflows
+gateway/sites.caddy           this stack's sites: the tailnet name and localhost:8446
+gateway/serve.json            tailnet :443 forwarded to the gateway (plus Funnel when PUBLIC_ACCESS=true)
 config.env                    auth key + hostname (gitignored)
 config.env.example            template for config.env
 data/                         data repo (submodule): server-settings.json tracked,
@@ -178,7 +180,7 @@ The auth key is only used at **first join**; the node identity then persists in
   "unlimited" - the 90-day auth-key cap is irrelevant after first join.)
 
 ## Notes
-- **On this PC:** the server is at `http://localhost:11470` (loopback only).
+- **On this PC:** the server is at `http://localhost:8446` (loopback only).
   Remote devices always use the tailnet HTTPS URL.
 - **Updating:** `docker compose pull && .\docker-compose.ps1 restart` pulls newer
   `stremio/server` and `tailscale` images.

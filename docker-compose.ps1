@@ -27,13 +27,9 @@ function Show-Usage([hashtable]$Commands) {
     }
 }
 
-# Selects the tailscale serve config that docker-compose.yml mounts. Anything
-# other than an explicit truthy PUBLIC_ACCESS stays tailnet-only, so a typo can
-# only ever fail closed.
-function Resolve-ServeFile {
-    $public = "$env:PUBLIC_ACCESS".Trim().ToLower() -in @("1", "true", "yes", "on")
-    $env:TS_SERVE_FILE = if ($public) { "funnel.json" } else { "serve.json" }
-    return $public
+# The gateway template reads PUBLIC_ACCESS itself; this only words the URL output to match.
+function Test-PublicAccess {
+    return "$env:PUBLIC_ACCESS".Trim().ToLower() -in @("1", "true", "yes", "on")
 }
 
 function Get-TailnetName {
@@ -71,7 +67,7 @@ function Connect-Tailnet {
         Start-Sleep -Seconds 2
     }
     Write-Err "The node did not join within 90s (an expired or used-up TS_AUTHKEY is the usual cause);"
-    Write-Err "the server is on http://localhost:11470 only. Check '.\docker-compose.ps1 logs'."
+    Write-Err "the server is on http://localhost:8446 only. Check '.\docker-compose.ps1 logs'."
 }
 
 # Prints the tailnet HTTPS URL clients should point Stremio at. Reads the live
@@ -95,7 +91,7 @@ function Show-Url {
         Write-OK "Streaming server URL (set this in web.stremio.com -> Settings):"
         Write-Host "    https://$dns/" -ForegroundColor Yellow
     }
-    Write-Host "  On this PC: http://localhost:11470/"
+    Write-Host "  On this PC: http://localhost:8446/"
 }
 
 function Invoke-Data([object[]]$DataArguments) {
@@ -127,7 +123,7 @@ function Invoke-Data([object[]]$DataArguments) {
 
 Set-Location $PSScriptRoot
 Import-Config "$PSScriptRoot\config.env"
-$script:IsPublic = Resolve-ServeFile
+$script:IsPublic = Test-PublicAccess
 
 $usage = @{
     "up"      = "Start the stack (default)"

@@ -3,6 +3,6 @@
 	reverse_proxy stremio-server:11470
 }
 
-http://:11470 {
+http://:8446 {
 	reverse_proxy stremio-server:11470
 }
