@@ -16,7 +16,7 @@ services:
     extends: { file: gateway/gateway.yml, service: gateway }
     container_name: stremio-gateway
     ports:
-      - "127.0.0.1:11470:11470"
+      - "127.0.0.1:8446:8446"
     environment:
       TAILNET_HOST: ${STREMIO_HOST:-stremio.invalid}
     depends_on:
@@ -31,10 +31,6 @@ services:
       # Stored node state can hold settings from earlier runs; --reset lets each boot's flag set win
       # instead of erroring out ("requires mentioning all non-default flags") and restart-looping.
       TS_EXTRA_ARGS: --reset
-    volumes:
-      # serve.json is tailnet-only, funnel.json public; the launcher picks one from PUBLIC_ACCESS,
-      # and a bare `docker compose up` stays private.
-      - ./gateway/${TS_SERVE_FILE:-serve.json}:/config/serve.json:ro
 
 x-volume-roles:
   tailscale-socket: rebuilt
