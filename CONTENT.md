@@ -6,11 +6,13 @@ fine" exception doesn't help here, because the device you watch on is a
 *different* machine. So the streaming server must be reachable over **real,
 browser-trusted HTTPS** - not a self-signed cert.
 
-Tailscale does this for free: the `tailscale` sidecar joins your tailnet and runs
-`tailscale serve`, which terminates HTTPS with a genuine Let's Encrypt
-certificate for this node's MagicDNS name and reverse-proxies to the streaming
-server. The `stremio-server` container shares the sidecar's network namespace, so
-no ports are exposed publicly - access is purely tailnet-internal. (To let
+Tailscale does this for free: the `tailscale` sidecar joins your tailnet inside
+the `gateway`'s network namespace, and the gateway (Caddy, the shared gateway of
+the `intisy-compose` stacks) terminates HTTPS with a genuine Let's Encrypt
+certificate for this node's MagicDNS name, taken from tailscale, and
+reverse-proxies to the streaming server. The same gateway serves
+`http://localhost:11470` on this PC only; nothing listens on the LAN, and access
+from other devices is purely tailnet-internal. (To let
 friends outside your tailnet in, see [Sharing with friends outside your
 tailnet](#sharing-with-friends-outside-your-tailnet).)
 
@@ -18,8 +20,8 @@ tailnet](#sharing-with-friends-outside-your-tailnet).)
 web.stremio.com  (open on any device on your tailnet)
         │  HTTPS - valid Let's Encrypt cert
         ▼
-https://<hostname>.<your-tailnet>.ts.net     ← tailscale serve (sidecar)
-        │  127.0.0.1:11470  (shared netns)
+https://<hostname>.<your-tailnet>.ts.net     ← tailscale (sidecar) -> gateway (Caddy)
+        │  stremio-server:11470
         ▼
 stremio/server                               ← the streaming server
 ```
@@ -40,7 +42,7 @@ In the Tailscale admin console:
 - **DNS** → enable **MagicDNS**.
 - **DNS** → **HTTPS Certificates** → **Enable HTTPS**.
 
-(Both are required for `tailscale serve` to obtain a cert.)
+(Both are required for the node to obtain a cert.)
 
 ### 2. Get an auth key
 Create one at <https://login.tailscale.com/admin/settings/keys> →
@@ -60,8 +62,8 @@ TS_HOSTNAME=stremio
 .\docker-compose.ps1 up
 ```
 
-On first run the sidecar authenticates to your tailnet and fetches its cert. The
-launcher then prints the URL to use - something like
+On first run the sidecar authenticates to your tailnet, the launcher writes the
+node's name to `STREMIO_HOST` in `config.env` and starts the gateway, and then prints the URL to use - something like
 `https://stremio.<your-tailnet>.ts.net/`. Re-print it anytime with the `url`
 command.
 
@@ -74,7 +76,7 @@ from step 3. It should flip to **connected**.
 | Command | What it does |
 |---------|--------------|
 | `up` (default) | Start the stack and print the HTTPS URL |
-| `down` | Stop and remove both containers |
+| `down` | Stop and remove the containers |
 | `restart` | Recreate the stack |
 | `logs` | Follow logs (watch the tailnet node authenticate here) |
 | `url` | Re-print the HTTPS URL for web.stremio.com |
@@ -107,8 +109,8 @@ the IP with your `WATCH_DEVICE_IP`, and `stremio` with your `TS_HOSTNAME`):
 name as the `dst` if you prefer.)
 
 ## Sharing with friends outside your tailnet
-Set `PUBLIC_ACCESS=true` in `config.env` and the sidecar switches from
-`tailscale serve` to **[Tailscale Funnel](https://tailscale.com/kb/1223/funnel)**:
+Set `PUBLIC_ACCESS=true` in `config.env` and the sidecar opens the tailnet site to
+**[Tailscale Funnel](https://tailscale.com/kb/1223/funnel)**:
 the same `https://<hostname>.<tailnet>.ts.net/` URL becomes reachable from the
 open internet, so friends can paste it into web.stremio.com with no Tailscale
 account and nothing to install.
@@ -155,9 +157,11 @@ node → **⋯** → **Share**. Leave `PUBLIC_ACCESS=false` in that case.
 ## Layout
 ```
 docker-compose.ps1            the one CLI: up / down / restart / logs / url / data
-docker-compose.yml            two services: tailscale sidecar + stremio/server
-serve.json                    tailscale serve config (HTTPS:443 -> 127.0.0.1:11470)
-funnel.json                   same, plus AllowFunnel (used when PUBLIC_ACCESS=true)
+docker-compose.yml            stremio/server, the gateway and the tailscale sidecar
+gateway/Caddyfile, gateway.yml  the shared gateway, vendored from intisy-compose/workflows
+gateway/sites.caddy           this stack's sites: the tailnet name and localhost:11470
+gateway/serve.json            tailnet :443 forwarded to the gateway
+gateway/funnel.json           same, plus AllowFunnel (used when PUBLIC_ACCESS=true)
 config.env                    auth key + hostname (gitignored)
 config.env.example            template for config.env
 data/                         data repo (submodule): server-settings.json tracked,
@@ -174,9 +178,8 @@ The auth key is only used at **first join**; the node identity then persists in
   "unlimited" - the 90-day auth-key cap is irrelevant after first join.)
 
 ## Notes
-- **Local debugging:** the host can reach the raw server at
-  `http://127.0.0.1:11470` (bound to localhost only). Remote devices always use
-  the tailnet HTTPS URL.
+- **On this PC:** the server is at `http://localhost:11470` (loopback only).
+  Remote devices always use the tailnet HTTPS URL.
 - **Updating:** `docker compose pull && .\docker-compose.ps1 restart` pulls newer
   `stremio/server` and `tailscale` images.
 - The node identity persists in `data/tailscale`, so restarts reuse the same
@@ -187,5 +190,3 @@ The auth key is only used at **first join**; the node identity then persists in
   8443 and 10000; this stack uses 443.
 - **If the HTTPS URL returns 502:** the streaming server's listener isn't up -
   run the `restart` command (or `docker compose restart stremio-server`).
-  Don't run `tailscale up --reset` while the stack is starting; it disrupts the
-  shared network namespace before the server binds port 11470.

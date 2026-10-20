@@ -36,16 +36,55 @@ function Resolve-ServeFile {
     return $public
 }
 
+function Get-TailnetName {
+    $raw = docker compose exec -T tailscale tailscale status --json 2>$null
+    if (-not $raw) { return $null }
+    try {
+        $status = $raw | Out-String | ConvertFrom-Json
+        if ($status.BackendState -ne "Running" -or -not $status.Self.DNSName) { return $null }
+        return $status.Self.DNSName.TrimEnd('.')
+    } catch { return $null }
+}
+
+function Set-ConfigValue([string]$Name, [string]$Value) {
+    $path = "$PSScriptRoot\config.env"
+    $lines = @(if (Test-Path $path) { Get-Content $path })
+    if ($lines -match "^\s*$Name\s*=") { $lines = $lines -replace "^\s*$Name\s*=.*$", "$Name=$Value" }
+    else { $lines += "$Name=$Value" }
+    [System.IO.File]::WriteAllText($path, (($lines -join "`n") + "`n"))
+    Set-Item "env:$Name" $Value
+}
+
+# The gateway's certificate is for the ts.net name, so the node joins first and its name is
+# written to STREMIO_HOST before the gateway starts with it.
+function Connect-Tailnet {
+    Write-Step "Joining the tailnet..."
+    docker compose up -d tailscale
+    $deadline = (Get-Date).AddSeconds(90)
+    while ((Get-Date) -lt $deadline) {
+        $dns = Get-TailnetName
+        if ($dns) {
+            Write-OK "Joined as $dns"
+            if ($env:STREMIO_HOST -ne $dns) { Set-ConfigValue "STREMIO_HOST" $dns; Write-OK "Wrote STREMIO_HOST to config.env." }
+            return
+        }
+        Start-Sleep -Seconds 2
+    }
+    Write-Err "The node did not join within 90s (an expired or used-up TS_AUTHKEY is the usual cause);"
+    Write-Err "the server is on http://localhost:11470 only. Check '.\docker-compose.ps1 logs'."
+}
+
 # Prints the tailnet HTTPS URL clients should point Stremio at. Reads the live
 # node identity from the running tailscale container so the tailnet name is real,
 # not guessed.
 function Show-Url {
-    $raw = docker compose exec -T tailscale tailscale status --json 2>$null
-    if (-not $raw) { Write-Err "tailscale not running yet - run 'up' first."; return }
-    try {
-        $dns = ($raw | ConvertFrom-Json).Self.DNSName.TrimEnd('.')
-    } catch { $dns = $null }
-    if (-not $dns) { Write-Err "Node not authenticated yet - check 'logs'."; return }
+    $deadline = (Get-Date).AddSeconds(30)
+    $dns = Get-TailnetName
+    while (-not $dns -and (Get-Date) -lt $deadline) {
+        Start-Sleep -Seconds 2
+        $dns = Get-TailnetName
+    }
+    if (-not $dns) { Write-Err "Node not on the tailnet yet - run 'up' first, or check 'logs'."; return }
     Write-Host ""
     if ($script:IsPublic) {
         Write-OK "Public streaming server URL - share this with friends:"
@@ -56,6 +95,7 @@ function Show-Url {
         Write-OK "Streaming server URL (set this in web.stremio.com -> Settings):"
         Write-Host "    https://$dns/" -ForegroundColor Yellow
     }
+    Write-Host "  On this PC: http://localhost:11470/"
 }
 
 function Invoke-Data([object[]]$DataArguments) {
@@ -110,16 +150,15 @@ switch ($Command.ToLower()) {
             exit 1
         }
         if ($script:IsPublic) { Write-Step "PUBLIC_ACCESS is on - serving over Tailscale Funnel." }
-        Write-Step "Starting stremio + tailscale..."
+        Connect-Tailnet
+        Write-Step "Starting stremio..."
         docker compose up -d
-        Write-Step "Waiting for the tailnet node to authenticate..."
-        Start-Sleep -Seconds 5
         Show-Url
         Write-Host "`nPress Enter to exit..."; $null = Read-Host
         break
     }
     "down"    { Write-Step "Stopping everything..."; docker compose down; break }
-    "restart" { Write-Step "Recreating..."; docker compose up -d --force-recreate; Show-Url; break }
+    "restart" { Write-Step "Recreating..."; Connect-Tailnet; docker compose up -d --force-recreate; Show-Url; break }
     "logs"    { docker compose logs -f; break }
     "url"     { Show-Url; break }
     "data"    { Invoke-Data $forwarded; break }

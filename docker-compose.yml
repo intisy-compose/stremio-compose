@@ -1,36 +1,45 @@
-services:
-  tailscale:
-    image: tailscale/tailscale:v1.102.4
-    container_name: stremio-tailscale
-    hostname: ${TS_HOSTNAME:-stremio}
-    restart: unless-stopped
-    environment:
-      - TS_AUTHKEY=${TS_AUTHKEY:-}
-      # Stored node state can hold settings from earlier runs; --reset lets each
-      # boot's flag set win instead of erroring out ("requires mentioning all
-      # non-default flags") and restart-looping the container.
-      - TS_EXTRA_ARGS=--reset
-      - TS_STATE_DIR=/var/lib/tailscale
-      - TS_USERSPACE=true
-      - TS_SERVE_CONFIG=/config/serve.json
-    volumes:
-      - ./data/tailscale:/var/lib/tailscale
-      # serve.json = tailnet-only, funnel.json = public. The launcher picks one
-      # from PUBLIC_ACCESS; the default keeps a bare `docker compose up` private.
-      - ./${TS_SERVE_FILE:-serve.json}:/config/serve.json:ro
-    ports:
-      - "127.0.0.1:11470:11470"
+name: stremio-compose
 
+services:
   stremio-server:
     image: stremio/server:latest
     container_name: stremio-server
     restart: unless-stopped
-    network_mode: "service:tailscale"
-    depends_on:
-      - tailscale
     environment:
       - NO_CORS=1
       - CASTING_DISABLED=1
       - APP_PATH=/root/.stremio-server
     volumes:
       - ./data/stremio:/root/.stremio-server
+
+  gateway:
+    extends: { file: gateway/gateway.yml, service: gateway }
+    container_name: stremio-gateway
+    ports:
+      - "127.0.0.1:11470:11470"
+    environment:
+      TAILNET_HOST: ${STREMIO_HOST:-stremio.invalid}
+    depends_on:
+      stremio-server:
+        condition: service_started
+
+  tailscale:
+    extends: { file: gateway/gateway.yml, service: tailscale }
+    container_name: stremio-tailscale
+    environment:
+      TS_HOSTNAME: ${TS_HOSTNAME:-stremio}
+      # Stored node state can hold settings from earlier runs; --reset lets each boot's flag set win
+      # instead of erroring out ("requires mentioning all non-default flags") and restart-looping.
+      TS_EXTRA_ARGS: --reset
+    volumes:
+      # serve.json is tailnet-only, funnel.json public; the launcher picks one from PUBLIC_ACCESS,
+      # and a bare `docker compose up` stays private.
+      - ./gateway/${TS_SERVE_FILE:-serve.json}:/config/serve.json:ro
+
+x-volume-roles:
+  tailscale-socket: rebuilt
+  gateway-caddy-data: rebuilt
+
+volumes:
+  tailscale-socket:
+  gateway-caddy-data:
