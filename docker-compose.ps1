@@ -5,6 +5,8 @@ $forwarded = $args
 
 Set-StrictMode -Version Latest
 
+. (Join-Path $PSScriptRoot "gateway\tailnet-node.ps1")
+
 function Write-Step([string]$msg) { Write-Host $msg -ForegroundColor Cyan }
 function Write-OK([string]$msg)   { Write-Host "  $msg" -ForegroundColor Green }
 function Write-Err([string]$msg)  { Write-Host $msg -ForegroundColor Red }
@@ -135,6 +137,20 @@ function Invoke-Data([object[]]$DataArguments) {
     }
 }
 
+<#
+.SYNOPSIS
+How the stack is deleted: down, then its node leaves the tailnet and data\tailscale goes, so a later up
+joins fresh. Removing the folder afterwards is the human's step.
+#>
+function Invoke-Delete {
+    Write-Step "Stopping everything..."
+    docker compose down
+    if ($LASTEXITCODE -ne 0) { Write-Err "docker compose down failed, so the node stays in the tailnet."; exit 1 }
+    $nodeName = if ($env:STREMIO_HOST) { $env:STREMIO_HOST } elseif ($env:TS_HOSTNAME) { $env:TS_HOSTNAME } else { "stremio" }
+    if (-not (Remove-TailnetIdentity (Join-Path $PSScriptRoot "data\tailscale") $nodeName "$PSScriptRoot\config.env")) { exit 1 }
+    Write-OK "Deleted. Remove this folder to finish."
+}
+
 Set-Location $PSScriptRoot
 Import-Config "$PSScriptRoot\config.env"
 $script:IsPublic = Test-PublicAccess
@@ -142,6 +158,7 @@ $script:IsPublic = Test-PublicAccess
 $usage = @{
     "up"      = "Start the stack (default)"
     "down"    = "Stop and remove everything"
+    "delete"  = "Down, then remove the stack's node from the tailnet (with TS_API_TOKEN) and data\tailscale; for a stack being removed"
     "restart" = "Recreate the stack"
     "logs"    = "Follow logs"
     "url"     = "Print the HTTPS URL to use in web.stremio.com"
@@ -168,6 +185,7 @@ switch ($Command.ToLower()) {
         break
     }
     "down"    { Write-Step "Stopping everything..."; docker compose down; break }
+    "delete"  { Invoke-Delete; break }
     "restart" { Write-Step "Recreating..."; Connect-Tailnet; docker compose up -d --force-recreate; Show-Url; break }
     "logs"    { docker compose logs -f; break }
     "url"     { Show-Url; break }
