@@ -77,7 +77,8 @@ from step 3. It should flip to **connected**.
 | Command | What it does |
 |---------|--------------|
 | `up` (default) | Start the stack and print the HTTPS URL |
-| `down` | Stop and remove the containers |
+| `down` | Stop and remove the containers; the node stays in the tailnet |
+| `delete` | Delete the stack: `down`, then remove its node from the tailnet and `data/tailscale` (see below) |
 | `restart` | Recreate the stack |
 | `logs` | Follow logs (watch the tailnet node authenticate here) |
 | `url` | Re-print the HTTPS URL for web.stremio.com |
@@ -85,11 +86,24 @@ from step 3. It should flip to **connected**.
 
 e.g. `.\docker-compose.ps1 logs` or `.\docker-compose.ps1 url`.
 
+### Deleting the stack
+
+`down` keeps the node in the tailnet, so the next `up` comes back under the same name. To remove the
+stack for good, run `.\docker-compose.ps1 delete`, then remove the folder. `delete` finds the node by
+the stable node ID in `data/tailscale/tailscaled.state`, never by its name, so another device named
+`stremio` stays, removes it through the Tailscale API with `TS_API_TOKEN` from `config.env`, and
+then removes `data/tailscale`, so a later `up` joins fresh. The token is an access token from
+[Settings, Keys](https://login.tailscale.com/admin/settings/keys) of an account that may remove
+devices (Owner, Admin or IT admin). Without one, `delete` prints the node's name and ID to remove on
+the [Machines page](https://login.tailscale.com/admin/machines) instead; when the API refuses or does
+not answer, `data/tailscale` stays and `delete` can run again.
+
 ## Configuration - `config.env`
 | Key | Purpose |
 |-----|---------|
 | `TS_AUTHKEY` | Tailscale auth key for the sidecar to join your tailnet. **Required.** |
 | `TS_HOSTNAME` | MagicDNS name of the node → `https://<TS_HOSTNAME>.<tailnet>.ts.net/`. Default `stremio`. |
+| `TS_API_TOKEN` | Optional Tailscale API access token; `delete` removes the node with it. |
 | `PUBLIC_ACCESS` | `true` serves over Tailscale Funnel, reachable from the open internet. Default `false` (tailnet-only). See below. |
 | `WATCH_DEVICE_IP` | The watch device's tailnet IP (`100.x.y.z`). Documentation only - used in the optional ACL below. |
 
